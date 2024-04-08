@@ -287,6 +287,8 @@ def main():
                 mqtt_client.publish(args.topic, json.dumps(values), retain=True)
                 if is_time_between(time(7,00), time(21,30)):
                     display_status(disp, args.broker, datetime.now().time())
+                else:
+                    disp.set_backlight(0)
         except Exception as e:
             print(e)
 
