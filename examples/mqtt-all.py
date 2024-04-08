@@ -7,7 +7,8 @@ Example run: python3 mqtt-all.py --broker 192.168.1.164 --topic enviro --usernam
 
 import argparse
 import ST7735
-import time
+import socket
+from datetime import datetime, time, timezone
 import ssl
 from bme280 import BME280
 from pms5003 import PMS5003, ReadTimeoutError, SerialTimeoutError
@@ -55,6 +56,15 @@ def on_connect(client, userdata, flags, rc):
 def on_publish(client, userdata, mid):
     print("mid: " + str(mid))
 
+# Check if current time is between values and return boolean
+def is_time_between(begin_time, end_time, check_time=None):
+    # If check time is not given, default to current UTC time
+    now_time = check_time or datetime.now().time()
+    print(now_time)
+    if begin_time < end_time:
+        return now_time >= begin_time and now_time <= end_time
+    else: # crosses midnight
+        return now_time >= begin_time or now_time <= end_time
 
 # Read values from BME280 and return as dict
 def read_bme280(bme280):
@@ -64,8 +74,8 @@ def read_bme280(bme280):
     cpu_temp = get_cpu_temperature()
     raw_temp = bme280.get_temperature()  # float
     comp_temp = raw_temp - ((cpu_temp - raw_temp) / comp_factor)
-    values["temperature"] = int(comp_temp)
-    values["rawTemperature"] = int(raw_temp)
+    values["compTemperature"] = int(comp_temp)
+    values["temperature"] = int(raw_temp)
     values["pressure"] = round(
         bme280.get_pressure(), -1
     )  # round to nearest 10
@@ -121,7 +131,7 @@ def check_wifi():
 
 
 # Display Raspberry Pi serial and Wi-Fi status on LCD
-def display_status(disp, mqtt_broker):
+def display_status(disp, mqtt_broker, time):
     # Width and height to calculate text position
     WIDTH = disp.width
     HEIGHT = disp.height
@@ -131,10 +141,11 @@ def display_status(disp, mqtt_broker):
 
     wifi_status = "connected" if check_wifi() else "disconnected"
     text_colour = (255, 255, 255)
-    back_colour = (0, 170, 170) if check_wifi() else (85, 15, 15)
+    back_colour = (0, 0, 0) if check_wifi() else (227, 9, 9)
     device_serial_number = get_serial_number()
-    message = "{}\nWi-Fi: {}\nmqtt-broker: {}".format(
-        device_serial_number, wifi_status, mqtt_broker
+    device_hostname = socket.gethostname()
+    message = "Serial:{}\nWi-Fi: {}\nmqtt-broker: {}\nUpdated: {}".format(
+        device_serial_number, wifi_status, mqtt_broker, time
     )
     img = Image.new("RGB", (WIDTH, HEIGHT), color=(0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -145,6 +156,10 @@ def display_status(disp, mqtt_broker):
     draw.text((x, y), message, font=font, fill=text_colour)
     disp.display(img)
 
+def utcTime():
+    dt = datetime.now(timezone.utc)
+    timeNow = dt.replace(tzinfo=timezone.utc).timestamp()
+    return timeNow
 
 def main():
     parser = argparse.ArgumentParser(
@@ -232,7 +247,7 @@ def main():
 
     # Create LCD instance
     disp = ST7735.ST7735(
-        port=0, cs=1, dc=9, backlight=12, rotation=270, spi_speed_hz=10000000
+        port=0, cs=1, dc=9, backlight=12, rotation=90, spi_speed_hz=10000000
     )
 
     # Initialize display
@@ -254,7 +269,7 @@ def main():
     print("MQTT broker IP: {}".format(args.broker))
 
     # Set an initial update time
-    update_time = time.time()
+    update_time = utcTime()
 
     # Main loop to read data, display, and send over mqtt
     mqtt_client.loop_start()
@@ -264,13 +279,14 @@ def main():
             if HAS_PMS:
                 pms_values = read_pms5003(pms5003)
                 values.update(pms_values)
-            time_since_update = time.time() - update_time
+            time_since_update = utcTime() - update_time
             if time_since_update >= args.interval:
-                update_time = time.time()
+                update_time = utcTime()
                 values["serial"] = device_serial_number
                 print(values)
                 mqtt_client.publish(args.topic, json.dumps(values), retain=True)
-                display_status(disp, args.broker)
+                if is_time_between(time(7,00), time(21,30)):
+                    display_status(disp, args.broker, datetime.now().time())
         except Exception as e:
             print(e)
 
