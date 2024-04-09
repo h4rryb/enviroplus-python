@@ -138,7 +138,7 @@ def display_status(disp, mqtt_broker, time):
     # Text settings
     font_size = 12
     font = ImageFont.truetype(UserFont, font_size)
-
+    disp.set_backlight(12)
     wifi_status = "connected" if check_wifi() else "disconnected"
     text_colour = (255, 255, 255)
     back_colour = (0, 0, 0) if check_wifi() else (227, 9, 9)
